@@ -1,4 +1,4 @@
--- tirvoxhub – v28
+-- tirvoxhub – v30 (Small Input Boxes for Potions)
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -167,6 +167,57 @@ local function getZoneTouch(zoneName)
         end
     end
     return nil
+end
+
+-- Функция для создания маленького поля ввода справа от переключателя
+local function AddSmallInput(toggle, idx, defaultVal)
+    local ToggleLabel = toggle.TextLabel
+    local BoxOuter = Library:Create('Frame', {
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BorderColor3 = Color3.new(0, 0, 0),
+        Size = UDim2.new(0, 35, 0, 15),
+        ZIndex = 6,
+        Parent = ToggleLabel,
+    })
+    local BoxInner = Library:Create('Frame', {
+        BackgroundColor3 = Library.BackgroundColor,
+        BorderColor3 = Library.OutlineColor,
+        BorderMode = Enum.BorderMode.Inset,
+        Size = UDim2.new(1, 0, 1, 0),
+        ZIndex = 7,
+        Parent = BoxOuter,
+    })
+    Library:AddToRegistry(BoxInner, { BackgroundColor3 = 'BackgroundColor', BorderColor3 = 'OutlineColor' })
+    
+    local Box = Library:Create('TextBox', {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 2, 0, 0),
+        Size = UDim2.new(1, -4, 1, 0),
+        Font = Library.Font,
+        PlaceholderColor3 = Color3.fromRGB(190, 190, 190),
+        PlaceholderText = '#',
+        Text = tostring(defaultVal or 1),
+        TextColor3 = Library.FontColor,
+        TextSize = 13,
+        TextStrokeTransparency = 0,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 8,
+        Parent = BoxInner,
+    })
+    Library:ApplyTextStroke(Box)
+    Library:AddToRegistry(Box, { TextColor3 = 'FontColor' })
+
+    local InputObj = { Value = tostring(defaultVal or 1), Type = 'Input' }
+    
+    Box.FocusLost:Connect(function()
+        local txt = string.gsub(Box.Text, "[^0-9]", "")
+        if txt == "" then txt = "1" end
+        Box.Text = txt
+        InputObj.Value = txt
+    end)
+
+    Options[idx] = InputObj
+    return InputObj
 end
 
 -- ==================== NOCLIP ====================
@@ -563,14 +614,23 @@ local function startAutoPotionLoopIfNeeded()
                     for _, ptn in ipairs(potions) do
                         if shouldUse and ptn.useBtn then
                             local lower = string.lower(ptn.name)
+                            local useAmount = 0
+                            
                             if lower:find("cash") and Toggles.UseCashPotion and Toggles.UseCashPotion.Value then
-                                clickUIBtn(ptn.useBtn)
+                                useAmount = tonumber(Options.UseCashAmount.Value) or 1
                             elseif lower:find("ultra") and Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then
-                                clickUIBtn(ptn.useBtn)
+                                useAmount = tonumber(Options.UseUltraLuckAmount.Value) or 1
                             elseif lower:find("luck") and not lower:find("ultra") and Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then
-                                clickUIBtn(ptn.useBtn)
+                                useAmount = tonumber(Options.UseLuckAmount.Value) or 1
                             elseif (lower:find("roll") or lower:find("speed")) and Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then
-                                clickUIBtn(ptn.useBtn)
+                                useAmount = tonumber(Options.UseRollSpeedAmount.Value) or 1
+                            end
+                            
+                            if useAmount > 0 then
+                                for _ = 1, useAmount do
+                                    clickUIBtn(ptn.useBtn)
+                                    wait(0.1)
+                                end
                             end
                         end
                     end
@@ -816,10 +876,18 @@ autoPotionGroup:AddToggle('UsePotion5x', {
 })
 
 autoPotionGroup:AddLabel('Select Potions to Use:', true)
-autoPotionGroup:AddToggle('UseCashPotion', { Text = 'Cash Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
-autoPotionGroup:AddToggle('UseLuckPotion', { Text = 'Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
-autoPotionGroup:AddToggle('UseRollSpeedPotion', { Text = 'Roll Speed Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
-autoPotionGroup:AddToggle('UseUltraLuckPotion', { Text = 'Ultra Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+
+local togCash = autoPotionGroup:AddToggle('UseCashPotion', { Text = 'Cash Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+AddSmallInput(togCash, 'UseCashAmount', 1)
+
+local togLuck = autoPotionGroup:AddToggle('UseLuckPotion', { Text = 'Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+AddSmallInput(togLuck, 'UseLuckAmount', 1)
+
+local togRoll = autoPotionGroup:AddToggle('UseRollSpeedPotion', { Text = 'Roll Speed Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+AddSmallInput(togRoll, 'UseRollSpeedAmount', 1)
+
+local togUltra = autoPotionGroup:AddToggle('UseUltraLuckPotion', { Text = 'Ultra Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+AddSmallInput(togUltra, 'UseUltraLuckAmount', 1)
 
 -- ==================== MISC ====================
 local creditsGroup = Tabs.Misc:AddLeftGroupbox('Credits')
@@ -841,7 +909,7 @@ Library.ToggleKeybind = Options.MenuKeybind
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({ 'MenuKeybind', 'FlyKeybind', 'InfJumpKeybind', 'NoclipKeybind', 'ClickTpKeybind' })
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind', 'FlyKeybind', 'InfJumpKeybind', 'NoclipKeybind', 'ClickTpKeybind', 'UseCashAmount', 'UseLuckAmount', 'UseRollSpeedAmount', 'UseUltraLuckAmount' })
 ThemeManager:SetFolder('tirvoxhub')
 SaveManager:SetFolder('tirvoxhub/configs')
 SaveManager:BuildConfigSection(Tabs['UI Settings'])
