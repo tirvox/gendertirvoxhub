@@ -1,4 +1,4 @@
--- tirvoxhub – v22 (Tween Zones & Fixes)
+-- tirvoxhub – v28
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -35,7 +35,6 @@ local autoPotion5x = false
 local autoTp2x = false
 local autoTp5x = false
 local autoPotionLoopRunning = false
-local potionAmountLabel = nil
 
 -- ==================== FLY ====================
 local flyBodyVelocity = nil
@@ -344,20 +343,17 @@ local function autoClickLoop()
     end
 end
 
--- ==================== AUTOBUY POTIONS ====================
+-- ==================== AUTOBUY POTIONS (Покупка) ====================
 local function autoBuyPotionLoop()
     while autoBuyPotionEnabled do
         local ok, mainFrame = pcall(function()
             return player.PlayerGui.UI.Frames.Potions.MainFrame
         end)
         if ok and mainFrame then
-            for _, potionName in ipairs({"1", "2", "3"}) do
-                local imgLabel = mainFrame:FindFirstChild(potionName)
-                if imgLabel then
-                    local buyBtn = imgLabel:FindFirstChild("BuyButtonCash", true)
-                    if buyBtn then
-                        clickUIBtn(buyBtn)
-                    end
+            for _, child in ipairs(mainFrame:GetChildren()) do
+                local buyBtn = child:FindFirstChild("BuyButtonCash", true)
+                if buyBtn then
+                    clickUIBtn(buyBtn)
                 end
             end
         end
@@ -464,18 +460,68 @@ local function getPotionsUseFrame()
     return ok and res or nil
 end
 
+local function findAllPotions(potionsFrame)
+    local found = {}
+    local seen = {}
+    
+    for _, desc in ipairs(potionsFrame:GetDescendants()) do
+        if desc.Name == "Amount" and desc:IsA("TextLabel") then
+            local amountLabel = desc
+            local container = amountLabel.Parent
+            
+            local useBtn = container:FindFirstChild("UseButton", true)
+            local nameLabel = container:FindFirstChild("Name", true)
+            
+            if not useBtn or not nameLabel then
+                local p2 = container.Parent
+                if p2 and p2 ~= potionsFrame then
+                    if not useBtn then useBtn = p2:FindFirstChild("UseButton", true) end
+                    if not nameLabel then nameLabel = p2:FindFirstChild("Name", true) end
+                    if useBtn or nameLabel then container = p2 end
+                end
+            end
+            
+            local display = "Unknown Potion"
+            if nameLabel and nameLabel:IsA("TextLabel") and nameLabel.Text ~= "" then
+                display = nameLabel.Text
+            elseif container then
+                display = container.Name
+            end
+            
+            if not seen[display] then
+                seen[display] = true
+                local amountStr = string.match(amountLabel.Text, "%((%d+)%)") or string.match(amountLabel.Text, "%d+") or "0"
+                local amount = tonumber(amountStr) or 0
+                
+                table.insert(found, {
+                    name = display,
+                    amount = amount,
+                    useBtn = useBtn
+                })
+            end
+        end
+    end
+    
+    return found
+end
+
 local function startAutoPotionLoopIfNeeded()
-    if not autoPotionLoopRunning and (autoTp2x or autoTp5x or autoPotion2x or autoPotion5x) then
+    local anyUseToggled = false
+    if Toggles.UseCashPotion and Toggles.UseCashPotion.Value then anyUseToggled = true end
+    if Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then anyUseToggled = true end
+    if Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then anyUseToggled = true end
+    if Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then anyUseToggled = true end
+
+    if not autoPotionLoopRunning and (autoTp2x or autoTp5x or autoPotion2x or autoPotion5x or anyUseToggled) then
         autoPotionLoopRunning = true
         spawn(function()
-            while autoTp2x or autoTp5x or autoPotion2x or autoPotion5x do
+            while autoTp2x or autoTp5x or autoPotion2x or autoPotion5x or anyUseToggled do
                 local char = player.Character
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 
                 local touch2 = getZoneTouch("2")
                 local touch5 = getZoneTouch("5")
                 
-                -- Логика полёта (Tween)
                 if root then
                     local target = nil
                     if autoTp5x and touch5 then
@@ -488,9 +534,8 @@ local function startAutoPotionLoopIfNeeded()
                         local goal = target.CFrame + Vector3.new(0, 3, 0)
                         local distance = (root.Position - goal.Position).Magnitude
                         
-                        -- Если далеко, летим твином. Если близко - просто стоим.
                         if distance > 5 then
-                            local timeNeeded = math.max(0.1, distance / 100) -- 100 studs/s
+                            local timeNeeded = math.max(0.1, distance / 100)
                             local info = TweenInfo.new(timeNeeded, Enum.EasingStyle.Linear)
                             local tween = TweenService:Create(root, info, {CFrame = CFrame.new(goal.Position)})
                             tween:Play()
@@ -499,7 +544,6 @@ local function startAutoPotionLoopIfNeeded()
                     end
                 end
                 
-                -- Логика использования зелий
                 local in2x = false
                 local in5x = false
                 if root and touch2 then
@@ -514,33 +558,21 @@ local function startAutoPotionLoopIfNeeded()
                 local potionsFrame = getPotionsUseFrame()
                 
                 if potionsFrame then
-                    local amounts = {}
-                    for _, potion in ipairs(potionsFrame:GetChildren()) do
-                        if potion:IsA("GuiObject") then
-                            local amountLabel = potion:FindFirstChild("Amount", true)
-                            local useBtn = potion:FindFirstChild("UseButton", true)
-                            
-                            local amount = 0
-                            if amountLabel then
-                                local amountStr = string.match(amountLabel.Text, "%((%d+)%)") or string.match(amountLabel.Text, "%d+") or "0"
-                                amount = tonumber(amountStr) or 0
-                                table.insert(amounts, potion.Name .. ": " .. amount)
-                            else
-                                table.insert(amounts, potion.Name .. ": N/A")
-                            end
-                            
-                            if shouldUse and useBtn then
-                                clickUIBtn(useBtn)
+                    local potions = findAllPotions(potionsFrame)
+                    
+                    for _, ptn in ipairs(potions) do
+                        if shouldUse and ptn.useBtn then
+                            local lower = string.lower(ptn.name)
+                            if lower:find("cash") and Toggles.UseCashPotion and Toggles.UseCashPotion.Value then
+                                clickUIBtn(ptn.useBtn)
+                            elseif lower:find("ultra") and Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then
+                                clickUIBtn(ptn.useBtn)
+                            elseif lower:find("luck") and not lower:find("ultra") and Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then
+                                clickUIBtn(ptn.useBtn)
+                            elseif (lower:find("roll") or lower:find("speed")) and Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then
+                                clickUIBtn(ptn.useBtn)
                             end
                         end
-                    end
-                    
-                    if potionAmountLabel then
-                        potionAmountLabel:SetText("Potion amounts:\n" .. table.concat(amounts, "\n"))
-                    end
-                else
-                    if potionAmountLabel then
-                        potionAmountLabel:SetText("Potions frame not found")
                     end
                 end
                 
@@ -699,8 +731,6 @@ farmGroup:AddSlider('ClickSpeed', {
     Text = 'Click Delay', Default = 0.1, Min = 0.01, Max = 1, Rounding = 2, Suffix = 's',
 })
 
-farmGroup:AddButton({ Text = 'Close Script', Func = function() Library:Unload() end })
-
 farmGroup:AddToggle('AntiAfkToggle', {
     Text = 'Anti AFK', Default = false, Tooltip = 'Simulates K key press every 10s',
     Callback = function(val) antiAfkEnabled = val end
@@ -737,7 +767,7 @@ visGroup:AddToggle('ZoomToggle', { Text = 'Zoom Unlock', Default = false, Callba
 local potionGroup = Tabs.Autobuy:AddLeftGroupbox('Potion Buyer')
 
 potionGroup:AddToggle('AutoBuyPotion', {
-    Text = 'Auto Buy All Potions (1, 2, 3)',
+    Text = 'Auto Buy All Potions',
     Default = false,
     Callback = function(val)
         autoBuyPotionEnabled = val
@@ -777,23 +807,29 @@ autoPotionGroup:AddToggle('AutoTp5x', {
     Callback = function(val) autoTp5x = val; startAutoPotionLoopIfNeeded() end 
 })
 autoPotionGroup:AddToggle('UsePotion2x', { 
-    Text = 'Use Potions in 2x Zone', Default = false, 
+    Text = 'Allow Use Potions in 2x', Default = false, 
     Callback = function(val) autoPotion2x = val; startAutoPotionLoopIfNeeded() end 
 })
 autoPotionGroup:AddToggle('UsePotion5x', { 
-    Text = 'Use Potions in 5x Zone', Default = false, 
+    Text = 'Allow Use Potions in 5x', Default = false, 
     Callback = function(val) autoPotion5x = val; startAutoPotionLoopIfNeeded() end 
 })
 
-potionAmountLabel = autoPotionGroup:AddLabel('Potion amounts:\nLoading...', true)
+autoPotionGroup:AddLabel('Select Potions to Use:', true)
+autoPotionGroup:AddToggle('UseCashPotion', { Text = 'Cash Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+autoPotionGroup:AddToggle('UseLuckPotion', { Text = 'Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+autoPotionGroup:AddToggle('UseRollSpeedPotion', { Text = 'Roll Speed Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
+autoPotionGroup:AddToggle('UseUltraLuckPotion', { Text = 'Ultra Luck Potion', Default = true, Callback = function(val) startAutoPotionLoopIfNeeded() end })
 
 -- ==================== MISC ====================
 local creditsGroup = Tabs.Misc:AddLeftGroupbox('Credits')
-creditsGroup:AddLabel('Credits: kiten, tirvox', true)
+creditsGroup:AddLabel('Credits: tirvox', true)
+
 local gamesGroup = Tabs.Misc:AddRightGroupbox('Games')
 gamesGroup:AddLabel('Works in this games:', true)
 gamesGroup:AddLabel('• Dingus', true)
 gamesGroup:AddLabel('• Build a Boat for Treasure', true)
+gamesGroup:AddLabel('• Gender RNG', true)
 
 -- ==================== UI SETTINGS ====================
 local menuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
