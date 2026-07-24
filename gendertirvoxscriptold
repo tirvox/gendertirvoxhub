@@ -1,4 +1,4 @@
--- tirvoxhub – v30 (Small Input Boxes for Potions)
+-- tirvoxhub – v43 (Added Hide Roll)
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -35,6 +35,7 @@ local autoPotion5x = false
 local autoTp2x = false
 local autoTp5x = false
 local autoPotionLoopRunning = false
+local hideRollEnabled = false
 
 -- ==================== FLY ====================
 local flyBodyVelocity = nil
@@ -79,41 +80,51 @@ end
 
 local function clickUIBtn(btn)
     if not btn then return end
+    local fired = false
     
     if btn:IsA("GuiButton") then
         if firesignal then
             pcall(firesignal, btn.Activated)
             pcall(firesignal, btn.MouseButton1Click)
-            return
+            pcall(firesignal, btn.MouseButton1Down)
+            pcall(firesignal, btn.MouseButton1Up)
+            fired = true
         end
-        if getconnections then
-            local fired = false
+        if not fired and getconnections then
             pcall(function()
-                for _, c in pairs(getconnections(btn.Activated)) do c:Fire(); fired = true end
-                for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire(); fired = true end
+                local conns = 0
+                for _, c in pairs(getconnections(btn.Activated)) do c:Fire(); conns = conns + 1 end
+                for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire(); conns = conns + 1 end
+                for _, c in pairs(getconnections(btn.MouseButton1Down)) do c:Fire(); conns = conns + 1 end
+                for _, c in pairs(getconnections(btn.MouseButton1Up)) do c:Fire(); conns = conns + 1 end
+                if conns > 0 then fired = true end
             end)
-            if fired then return end
         end
     else
         if getconnections then
-            local fired = false
             pcall(function()
+                local fakeInput = {UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown}
+                local conns = 0
                 for _, c in pairs(getconnections(btn.InputBegan)) do 
-                    local fakeInput = {UserInputType = Enum.UserInputType.MouseButton1, KeyCode = Enum.KeyCode.Unknown}
                     c:Fire(fakeInput) 
-                    fired = true
+                    conns = conns + 1
                 end
+                if conns > 0 then fired = true end
             end)
-            if fired then return end
         end
     end
     
-    local pos = btn.AbsolutePosition
-    local size = btn.AbsoluteSize
-    local x = math.floor(pos.X + size.X/2)
-    local y = math.floor(pos.Y + size.Y/2)
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+    if not fired then
+        local pos = btn.AbsolutePosition
+        local size = btn.AbsoluteSize
+        if size.X > 0 and size.Y > 0 then
+            local x = math.floor(pos.X + size.X/2)
+            local y = math.floor(pos.Y + size.Y/2)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+        end
+    end
 end
 
 local function parseNum(str)
@@ -129,6 +140,14 @@ local function parseNum(str)
     if numStr == "" then return 0 end
     local num = tonumber(numStr)
     return num and num * mult or 0
+end
+
+local function getAmount(idx, default)
+    if Options[idx] and Options[idx].Value then
+        local val = tonumber(Options[idx].Value)
+        if val and val > 0 then return val end
+    end
+    return default or 1
 end
 
 local function findUpgrade(mainFrame, name)
@@ -165,47 +184,54 @@ local function getZoneTouch(zoneName)
         if touch and touch:IsA("BasePart") then
             return touch
         end
+        if zone:IsA("BasePart") then
+            return zone
+        end
     end
     return nil
 end
 
--- Функция для создания маленького поля ввода справа от переключателя
 local function AddSmallInput(toggle, idx, defaultVal)
+    if not toggle or not toggle.TextLabel then 
+        Options[idx] = { Value = tostring(defaultVal or 1), Type = 'Input' }
+        return Options[idx]
+    end
     local ToggleLabel = toggle.TextLabel
-    local BoxOuter = Library:Create('Frame', {
-        BackgroundColor3 = Color3.new(0, 0, 0),
-        BorderColor3 = Color3.new(0, 0, 0),
-        Size = UDim2.new(0, 35, 0, 15),
-        ZIndex = 6,
-        Parent = ToggleLabel,
-    })
-    local BoxInner = Library:Create('Frame', {
-        BackgroundColor3 = Library.BackgroundColor,
-        BorderColor3 = Library.OutlineColor,
-        BorderMode = Enum.BorderMode.Inset,
-        Size = UDim2.new(1, 0, 1, 0),
-        ZIndex = 7,
-        Parent = BoxOuter,
-    })
-    Library:AddToRegistry(BoxInner, { BackgroundColor3 = 'BackgroundColor', BorderColor3 = 'OutlineColor' })
     
-    local Box = Library:Create('TextBox', {
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 2, 0, 0),
-        Size = UDim2.new(1, -4, 1, 0),
-        Font = Library.Font,
-        PlaceholderColor3 = Color3.fromRGB(190, 190, 190),
-        PlaceholderText = '#',
-        Text = tostring(defaultVal or 1),
-        TextColor3 = Library.FontColor,
-        TextSize = 13,
-        TextStrokeTransparency = 0,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        ZIndex = 8,
-        Parent = BoxInner,
-    })
-    Library:ApplyTextStroke(Box)
-    Library:AddToRegistry(Box, { TextColor3 = 'FontColor' })
+    local BoxOuter = Instance.new("Frame")
+    BoxOuter.Size = UDim2.new(0, 35, 0, 15)
+    BoxOuter.BackgroundColor3 = Color3.new(0, 0, 0)
+    BoxOuter.BorderColor3 = Color3.new(0, 0, 0)
+    BoxOuter.ZIndex = 10
+    BoxOuter.Parent = ToggleLabel
+    
+    local BoxInner = Instance.new("Frame")
+    BoxInner.Size = UDim2.new(1, 0, 1, 0)
+    BoxInner.BackgroundColor3 = Library.BackgroundColor
+    BoxInner.BorderColor3 = Library.OutlineColor
+    BoxInner.BorderMode = Enum.BorderMode.Inset
+    BoxInner.ZIndex = 10
+    BoxInner.Parent = BoxOuter
+    
+    local Box = Instance.new("TextBox")
+    Box.BackgroundTransparency = 1
+    Box.Position = UDim2.new(0, 2, 0, 0)
+    Box.Size = UDim2.new(1, -4, 1, 0)
+    Box.Font = Library.Font
+    Box.PlaceholderColor3 = Color3.fromRGB(190, 190, 190)
+    Box.PlaceholderText = '#'
+    Box.Text = tostring(defaultVal or 1)
+    Box.TextColor3 = Library.FontColor
+    Box.TextSize = 13
+    Box.TextXAlignment = Enum.TextXAlignment.Center
+    Box.ZIndex = 11
+    Box.Active = true
+    Box.Parent = BoxInner
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.new(0, 0, 0)
+    Stroke.Thickness = 1
+    Stroke.Parent = Box
 
     local InputObj = { Value = tostring(defaultVal or 1), Type = 'Input' }
     
@@ -394,20 +420,43 @@ local function autoClickLoop()
     end
 end
 
+-- ==================== HIDE ROLL LOOP ====================
+spawn(function()
+    while true do
+        wait(0.1)
+        if hideRollEnabled then
+            pcall(function()
+                local rollFrame = player.PlayerGui:FindFirstChild("UI")
+                if rollFrame then
+                    rollFrame = rollFrame:FindFirstChild("Frames")
+                    if rollFrame then
+                        rollFrame = rollFrame:FindFirstChild("Roll")
+                        if rollFrame then
+                            rollFrame.Visible = false
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
 -- ==================== AUTOBUY POTIONS (Покупка) ====================
 local function autoBuyPotionLoop()
     while autoBuyPotionEnabled do
-        local ok, mainFrame = pcall(function()
-            return player.PlayerGui.UI.Frames.Potions.MainFrame
-        end)
-        if ok and mainFrame then
-            for _, child in ipairs(mainFrame:GetChildren()) do
-                local buyBtn = child:FindFirstChild("BuyButtonCash", true)
-                if buyBtn then
-                    clickUIBtn(buyBtn)
+        pcall(function()
+            local ok, mainFrame = pcall(function()
+                return player.PlayerGui.UI.Frames.Potions.MainFrame
+            end)
+            if ok and mainFrame then
+                for _, child in ipairs(mainFrame:GetChildren()) do
+                    local buyBtn = child:FindFirstChild("BuyButtonCash", true)
+                    if buyBtn then
+                        clickUIBtn(buyBtn)
+                    end
                 end
             end
-        end
+        end)
         wait(0.5)
     end
 end
@@ -417,71 +466,72 @@ local upgLabels = {}
 
 local function autoUpgradeLoop()
     while autoUpgradeEnabled do
-        local cashTxt = player.PlayerGui.UI.CashFrame.CashAmount.Text
-        local cash = parseNum(cashTxt)
-        
-        local ok, mainFrame = pcall(function()
-            return player.PlayerGui.UI.Frames.Upgrades.MainFrame
-        end)
-        
-        if ok and mainFrame then
-            local affordable = {}
+        pcall(function()
+            local cashTxt = player.PlayerGui.UI.CashFrame.CashAmount.Text
+            local cash = parseNum(cashTxt)
             
-            local upgrades = {
-                {name = "Cash Income", tog = "UpgradeCashIncome", label = upgLabels[1]},
-                {name = "Luck", tog = "UpgradeLuck", label = upgLabels[2]},
-                {name = "Potion Duration", tog = "UpgradePotionDuration", label = upgLabels[3]},
-                {name = "Roll Speed", tog = "UpgradeRollSpeed", label = upgLabels[4]}
-            }
+            local ok, mainFrame = pcall(function()
+                return player.PlayerGui.UI.Frames.Upgrades.MainFrame
+            end)
             
-            for _, upg in ipairs(upgrades) do
-                if Toggles[upg.tog] and Toggles[upg.tog].Value then
-                    local item = findUpgrade(mainFrame, upg.name)
-                    if item then
-                        local priceLabel = findPrice(item)
-                        local price = 0
-                        if priceLabel then
-                            price = parseNum(priceLabel.Text)
-                            if upg.label then
-                                upg.label:SetText(upg.name .. ": " .. priceLabel.Text)
+            if ok and mainFrame then
+                local affordable = {}
+                
+                local upgrades = {
+                    {name = "Cash Income", tog = "UpgradeCashIncome", label = upgLabels[1]},
+                    {name = "Luck", tog = "UpgradeLuck", label = upgLabels[2]},
+                    {name = "Potion Duration", tog = "UpgradePotionDuration", label = upgLabels[3]},
+                    {name = "Roll Speed", tog = "UpgradeRollSpeed", label = upgLabels[4]}
+                }
+                
+                for _, upg in ipairs(upgrades) do
+                    if Toggles[upg.tog] and Toggles[upg.tog].Value then
+                        local item = findUpgrade(mainFrame, upg.name)
+                        if item then
+                            local priceLabel = findPrice(item)
+                            local price = 0
+                            if priceLabel then
+                                price = parseNum(priceLabel.Text)
+                                if upg.label then
+                                    upg.label:SetText(upg.name .. ": " .. priceLabel.Text)
+                                end
+                            else
+                                if upg.label then
+                                    upg.label:SetText(upg.name .. ": Price N/A")
+                                end
+                            end
+                            
+                            if cash >= price then
+                                table.insert(affordable, {frame = item, price = price})
                             end
                         else
                             if upg.label then
-                                upg.label:SetText(upg.name .. ": Price N/A")
+                                upg.label:SetText(upg.name .. ": Not Found")
                             end
-                        end
-                        
-                        if cash >= price then
-                            table.insert(affordable, {frame = item, price = price})
-                        end
-                    else
-                        if upg.label then
-                            upg.label:SetText(upg.name .. ": Not Found")
                         end
                     end
                 end
-            end
-            
-            table.sort(affordable, function(a, b) return a.price < b.price end)
-            
-            if #affordable > 0 then
-                local toBuy = affordable[1].frame
-                local buyBtn = toBuy:FindFirstChild("BuyButtonCash", true)
-                if not buyBtn then
-                    buyBtn = toBuy:FindFirstChildWhichIsA("TextButton") or toBuy:FindFirstChildWhichIsA("ImageButton")
-                end
-                if buyBtn then
-                    clickUIBtn(buyBtn)
+                
+                table.sort(affordable, function(a, b) return a.price < b.price end)
+                
+                if #affordable > 0 then
+                    local toBuy = affordable[1].frame
+                    local buyBtn = toBuy:FindFirstChild("BuyButtonCash", true)
+                    if not buyBtn then
+                        buyBtn = toBuy:FindFirstChildWhichIsA("TextButton") or toBuy:FindFirstChildWhichIsA("ImageButton")
+                    end
+                    if buyBtn then
+                        clickUIBtn(buyBtn)
+                    else
+                        clickUIBtn(toBuy)
+                    end
+                    wait(0.2)
                 else
-                    clickUIBtn(toBuy)
+                    wait(0.5)
                 end
-                wait(0.2)
-            else
-                wait(0.5)
             end
-        else
-            wait(1)
-        end
+        end)
+        wait(1)
     end
 end
 
@@ -516,20 +566,18 @@ local function findAllPotions(potionsFrame)
     local seen = {}
     
     for _, desc in ipairs(potionsFrame:GetDescendants()) do
-        if desc.Name == "Amount" and desc:IsA("TextLabel") then
-            local amountLabel = desc
-            local container = amountLabel.Parent
+        if string.lower(desc.Name) == "usebutton" and desc:IsA("GuiButton") then
+            local useBtn = desc
+            local container = useBtn.Parent
             
-            local useBtn = container:FindFirstChild("UseButton", true)
+            local amountLabel = container:FindFirstChild("Amount", true)
             local nameLabel = container:FindFirstChild("Name", true)
             
-            if not useBtn or not nameLabel then
-                local p2 = container.Parent
-                if p2 and p2 ~= potionsFrame then
-                    if not useBtn then useBtn = p2:FindFirstChild("UseButton", true) end
-                    if not nameLabel then nameLabel = p2:FindFirstChild("Name", true) end
-                    if useBtn or nameLabel then container = p2 end
-                end
+            local p2 = container.Parent
+            if p2 and p2 ~= potionsFrame then
+                if not amountLabel then amountLabel = p2:FindFirstChild("Amount", true) end
+                if not nameLabel then nameLabel = p2:FindFirstChild("Name", true) end
+                if amountLabel or nameLabel then container = p2 end
             end
             
             local display = "Unknown Potion"
@@ -541,8 +589,11 @@ local function findAllPotions(potionsFrame)
             
             if not seen[display] then
                 seen[display] = true
-                local amountStr = string.match(amountLabel.Text, "%((%d+)%)") or string.match(amountLabel.Text, "%d+") or "0"
-                local amount = tonumber(amountStr) or 0
+                local amount = 0
+                if amountLabel then
+                    local amountStr = string.match(amountLabel.Text, "%((%d+)%)") or string.match(amountLabel.Text, "%d+") or "0"
+                    amount = tonumber(amountStr) or 0
+                end
                 
                 table.insert(found, {
                     name = display,
@@ -567,13 +618,14 @@ local function startAutoPotionLoopIfNeeded()
         autoPotionLoopRunning = true
         spawn(function()
             while autoTp2x or autoTp5x or autoPotion2x or autoPotion5x or anyUseToggled do
-                local char = player.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                
-                local touch2 = getZoneTouch("2")
-                local touch5 = getZoneTouch("5")
-                
-                if root then
+                pcall(function()
+                    local char = player.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    
+                    local touch2 = getZoneTouch("2")
+                    local touch5 = getZoneTouch("5")
+                    
                     local target = nil
                     if autoTp5x and touch5 then
                         target = touch5
@@ -581,63 +633,83 @@ local function startAutoPotionLoopIfNeeded()
                         target = touch2
                     end
                     
-                    if target then
-                        local goal = target.CFrame + Vector3.new(0, 3, 0)
-                        local distance = (root.Position - goal.Position).Magnitude
+                    if target and root then
+                        if hum and not flyEnabled then hum.PlatformStand = true end
                         
-                        if distance > 5 then
-                            local timeNeeded = math.max(0.1, distance / 100)
+                        local goal = target.CFrame + Vector3.new(0, 3, 0)
+                        local dist = (root.Position - goal.Position).Magnitude
+                        
+                        if dist > 10 then
+                            local timeNeeded = math.max(0.1, dist / 150) 
                             local info = TweenInfo.new(timeNeeded, Enum.EasingStyle.Linear)
-                            local tween = TweenService:Create(root, info, {CFrame = CFrame.new(goal.Position)})
+                            local tween = TweenService:Create(root, info, {CFrame = goal})
                             tween:Play()
-                            tween.Completed:Wait()
-                        end
-                    end
-                end
-                
-                local in2x = false
-                local in5x = false
-                if root and touch2 then
-                    if (root.Position - touch2.Position).Magnitude < 30 then in2x = true end
-                end
-                if root and touch5 then
-                    if (root.Position - touch5.Position).Magnitude < 30 then in5x = true end
-                end
-                
-                local shouldUse = (autoPotion2x and in2x) or (autoPotion5x and in5x)
-                
-                local potionsFrame = getPotionsUseFrame()
-                
-                if potionsFrame then
-                    local potions = findAllPotions(potionsFrame)
-                    
-                    for _, ptn in ipairs(potions) do
-                        if shouldUse and ptn.useBtn then
-                            local lower = string.lower(ptn.name)
-                            local useAmount = 0
                             
-                            if lower:find("cash") and Toggles.UseCashPotion and Toggles.UseCashPotion.Value then
-                                useAmount = tonumber(Options.UseCashAmount.Value) or 1
-                            elseif lower:find("ultra") and Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then
-                                useAmount = tonumber(Options.UseUltraLuckAmount.Value) or 1
-                            elseif lower:find("luck") and not lower:find("ultra") and Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then
-                                useAmount = tonumber(Options.UseLuckAmount.Value) or 1
-                            elseif (lower:find("roll") or lower:find("speed")) and Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then
-                                useAmount = tonumber(Options.UseRollSpeedAmount.Value) or 1
+                            local completed = false
+                            local conn = tween.Completed:Connect(function()
+                                completed = true
+                            end)
+                            
+                            local timeout = tick() + timeNeeded + 1
+                            while not completed and tick() < timeout do
+                                if not autoTp2x and not autoTp5x then break end
+                                wait(0.03)
                             end
-                            
-                            if useAmount > 0 then
-                                for _ = 1, useAmount do
-                                    clickUIBtn(ptn.useBtn)
-                                    wait(0.1)
+                            conn:Disconnect()
+                            tween:Cancel()
+                            root.CFrame = goal
+                        else
+                            root.CFrame = goal
+                        end
+                        
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                        
+                        local in2x = touch2 and (root.Position - touch2.Position).Magnitude < 50
+                        local in5x = touch5 and (root.Position - touch5.Position).Magnitude < 50
+                        
+                        local shouldUse = (autoPotion2x and in2x) or (autoPotion5x and in5x)
+                        
+                        if shouldUse then
+                            local potionsFrame = getPotionsUseFrame()
+                            if potionsFrame then
+                                local potions = findAllPotions(potionsFrame)
+                                
+                                for _, ptn in ipairs(potions) do
+                                    if ptn.useBtn then
+                                        local lower = string.lower(ptn.name)
+                                        local useAmount = 0
+                                        
+                                        if lower:find("cash") and Toggles.UseCashPotion and Toggles.UseCashPotion.Value then
+                                            useAmount = getAmount('UseCashAmount')
+                                        elseif lower:find("ultra") and Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then
+                                            useAmount = getAmount('UseUltraLuckAmount')
+                                        elseif lower:find("luck") and not lower:find("ultra") and Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then
+                                            useAmount = getAmount('UseLuckAmount')
+                                        elseif (lower:find("roll") or lower:find("speed")) and Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then
+                                            useAmount = getAmount('UseRollSpeedAmount')
+                                        end
+                                        
+                                        if useAmount > 0 then
+                                            for _ = 1, useAmount do
+                                                clickUIBtn(ptn.useBtn)
+                                                wait(0.1)
+                                            end
+                                        end
+                                    end
                                 end
                             end
                         end
+                    else
+                        if hum and not flyEnabled then hum.PlatformStand = false end
                     end
-                end
-                
-                wait(0.5)
+                end)
+                wait(0.2)
             end
+            
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and not flyEnabled then hum.PlatformStand = false end
             autoPotionLoopRunning = false
         end)
     end
@@ -791,6 +863,15 @@ farmGroup:AddSlider('ClickSpeed', {
     Text = 'Click Delay', Default = 0.1, Min = 0.01, Max = 1, Rounding = 2, Suffix = 's',
 })
 
+farmGroup:AddToggle('HideRollToggle', {
+    Text = 'Hide Roll Frame',
+    Default = false,
+    Tooltip = 'Hides the Roll frame every 0.1s',
+    Callback = function(val)
+        hideRollEnabled = val
+    end
+})
+
 farmGroup:AddToggle('AntiAfkToggle', {
     Text = 'Anti AFK', Default = false, Tooltip = 'Simulates K key press every 10s',
     Callback = function(val) antiAfkEnabled = val end
@@ -924,6 +1005,7 @@ local function resetSettings()
     playerEspEnabled = false; zoomEnabled = false; autoBuyPotionEnabled = false
     autoUpgradeEnabled = false; isClicking = false
     autoPotion2x = false; autoPotion5x = false; autoTp2x = false; autoTp5x = false
+    hideRollEnabled = false
 
     teardownFly(); disableNoclip(); removeFullbright(); disableEsp(); disableZoom()
 
