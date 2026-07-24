@@ -1,4 +1,4 @@
--- tirvoxhub – v43 (Added Hide Roll)
+-- tirvoxhub – v47 (Egg in Autobuy & Potion Check)
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -32,10 +32,14 @@ local autoBuyPotionEnabled = false
 local autoUpgradeEnabled = false
 local autoPotion2x = false
 local autoPotion5x = false
+local autoPotion10x = false
 local autoTp2x = false
 local autoTp5x = false
+local autoTp10x = false
 local autoPotionLoopRunning = false
 local hideRollEnabled = false
+local hideEggEnabled = false
+local autoEggEnabled = false
 
 -- ==================== FLY ====================
 local flyBodyVelocity = nil
@@ -142,14 +146,6 @@ local function parseNum(str)
     return num and num * mult or 0
 end
 
-local function getAmount(idx, default)
-    if Options[idx] and Options[idx].Value then
-        local val = tonumber(Options[idx].Value)
-        if val and val > 0 then return val end
-    end
-    return default or 1
-end
-
 local function findUpgrade(mainFrame, name)
     local target = string.lower(name):gsub(" ", "")
     for _, desc in ipairs(mainFrame:GetDescendants()) do
@@ -244,6 +240,28 @@ local function AddSmallInput(toggle, idx, defaultVal)
 
     Options[idx] = InputObj
     return InputObj
+end
+
+-- Функция проверки активных зелий
+local function getActivePotions()
+    local active = {}
+    pcall(function()
+        local ui = player.PlayerGui:FindFirstChild("UI")
+        if ui then
+            local applied = ui:FindFirstChild("AppliedPotions")
+            if applied then
+                local holder = applied:FindFirstChild("Holder")
+                if holder then
+                    for _, child in ipairs(holder:GetChildren()) do
+                        if child:IsA("Frame") or child:IsA("ImageLabel") or child:IsA("TextLabel") then
+                            active[string.lower(child.Name)] = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return active
 end
 
 -- ==================== NOCLIP ====================
@@ -420,19 +438,45 @@ local function autoClickLoop()
     end
 end
 
--- ==================== HIDE ROLL LOOP ====================
+-- ==================== HIDE ROLL & EGG LOOP ====================
 spawn(function()
     while true do
         wait(0.1)
-        if hideRollEnabled then
+        pcall(function()
+            local ui = player.PlayerGui:FindFirstChild("UI")
+            if ui then
+                local frames = ui:FindFirstChild("Frames")
+                if frames then
+                    if hideRollEnabled then
+                        local roll = frames:FindFirstChild("Roll")
+                        if roll then roll.Visible = false end
+                    end
+                    if hideEggEnabled then
+                        local egg = frames:FindFirstChild("EggOpening")
+                        if egg then egg.Visible = false end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- ==================== AUTO EGG LOOP ====================
+spawn(function()
+    while true do
+        wait(1)
+        if autoEggEnabled then
             pcall(function()
-                local rollFrame = player.PlayerGui:FindFirstChild("UI")
-                if rollFrame then
-                    rollFrame = rollFrame:FindFirstChild("Frames")
-                    if rollFrame then
-                        rollFrame = rollFrame:FindFirstChild("Roll")
-                        if rollFrame then
-                            rollFrame.Visible = false
+                local egg = workspace:FindFirstChild("Eggs")
+                if egg then
+                    local rEgg = egg:FindFirstChild("Rainbow Egg")
+                    if rEgg then
+                        local proxPart = rEgg:FindFirstChild("ProxPart")
+                        if proxPart then
+                            local prompt = proxPart:FindFirstChild("ProximityPrompt")
+                            if prompt then
+                                fireproximityprompt(prompt, 0)
+                            end
                         end
                     end
                 end
@@ -614,10 +658,10 @@ local function startAutoPotionLoopIfNeeded()
     if Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then anyUseToggled = true end
     if Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then anyUseToggled = true end
 
-    if not autoPotionLoopRunning and (autoTp2x or autoTp5x or autoPotion2x or autoPotion5x or anyUseToggled) then
+    if not autoPotionLoopRunning and (autoTp2x or autoTp5x or autoTp10x or autoPotion2x or autoPotion5x or autoPotion10x or anyUseToggled) then
         autoPotionLoopRunning = true
         spawn(function()
-            while autoTp2x or autoTp5x or autoPotion2x or autoPotion5x or anyUseToggled do
+            while autoTp2x or autoTp5x or autoTp10x or autoPotion2x or autoPotion5x or autoPotion10x or anyUseToggled do
                 pcall(function()
                     local char = player.Character
                     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -625,9 +669,12 @@ local function startAutoPotionLoopIfNeeded()
                     
                     local touch2 = getZoneTouch("2")
                     local touch5 = getZoneTouch("5")
+                    local touch10 = getZoneTouch("10")
                     
                     local target = nil
-                    if autoTp5x and touch5 then
+                    if autoTp10x and touch10 then
+                        target = touch10
+                    elseif autoTp5x and touch5 then
                         target = touch5
                     elseif autoTp2x and touch2 then
                         target = touch2
@@ -652,7 +699,7 @@ local function startAutoPotionLoopIfNeeded()
                             
                             local timeout = tick() + timeNeeded + 1
                             while not completed and tick() < timeout do
-                                if not autoTp2x and not autoTp5x then break end
+                                if not autoTp2x and not autoTp5x and not autoTp10x then break end
                                 wait(0.03)
                             end
                             conn:Disconnect()
@@ -667,34 +714,33 @@ local function startAutoPotionLoopIfNeeded()
                         
                         local in2x = touch2 and (root.Position - touch2.Position).Magnitude < 50
                         local in5x = touch5 and (root.Position - touch5.Position).Magnitude < 50
+                        local in10x = touch10 and (root.Position - touch10.Position).Magnitude < 50
                         
-                        local shouldUse = (autoPotion2x and in2x) or (autoPotion5x and in5x)
+                        local shouldUse = (autoPotion2x and in2x) or (autoPotion5x and in5x) or (autoPotion10x and in10x)
                         
                         if shouldUse then
+                            local activePotions = getActivePotions()
                             local potionsFrame = getPotionsUseFrame()
                             if potionsFrame then
                                 local potions = findAllPotions(potionsFrame)
                                 
                                 for _, ptn in ipairs(potions) do
-                                    if ptn.useBtn then
+                                    if ptn.useBtn and not activePotions[string.lower(ptn.name)] then
                                         local lower = string.lower(ptn.name)
-                                        local useAmount = 0
+                                        local shouldUseThis = false
                                         
                                         if lower:find("cash") and Toggles.UseCashPotion and Toggles.UseCashPotion.Value then
-                                            useAmount = getAmount('UseCashAmount')
+                                            shouldUseThis = true
                                         elseif lower:find("ultra") and Toggles.UseUltraLuckPotion and Toggles.UseUltraLuckPotion.Value then
-                                            useAmount = getAmount('UseUltraLuckAmount')
+                                            shouldUseThis = true
                                         elseif lower:find("luck") and not lower:find("ultra") and Toggles.UseLuckPotion and Toggles.UseLuckPotion.Value then
-                                            useAmount = getAmount('UseLuckAmount')
+                                            shouldUseThis = true
                                         elseif (lower:find("roll") or lower:find("speed")) and Toggles.UseRollSpeedPotion and Toggles.UseRollSpeedPotion.Value then
-                                            useAmount = getAmount('UseRollSpeedAmount')
+                                            shouldUseThis = true
                                         end
                                         
-                                        if useAmount > 0 then
-                                            for _ = 1, useAmount do
-                                                clickUIBtn(ptn.useBtn)
-                                                wait(0.1)
-                                            end
+                                        if shouldUseThis then
+                                            clickUIBtn(ptn.useBtn)
                                         end
                                     end
                                 end
@@ -704,7 +750,7 @@ local function startAutoPotionLoopIfNeeded()
                         if hum and not flyEnabled then hum.PlatformStand = false end
                     end
                 end)
-                wait(0.2)
+                wait(0.5)
             end
             
             local char = player.Character
@@ -916,6 +962,24 @@ potionGroup:AddToggle('AutoBuyPotion', {
     end
 })
 
+potionGroup:AddToggle('HideEggToggle', {
+    Text = 'Hide Egg Opening Frame',
+    Default = false,
+    Tooltip = 'Hides the EggOpening frame',
+    Callback = function(val)
+        hideEggEnabled = val
+    end
+})
+
+potionGroup:AddToggle('AutoEggToggle', {
+    Text = 'Auto Buy Rainbow Egg',
+    Default = false,
+    Tooltip = 'Auto triggers ProximityPrompt for Rainbow Egg',
+    Callback = function(val)
+        autoEggEnabled = val
+    end
+})
+
 local upgradeGroup = Tabs.Autobuy:AddRightGroupbox('Auto Upgrades')
 
 upgradeGroup:AddToggle('AutoUpgrade', {
@@ -947,6 +1011,10 @@ autoPotionGroup:AddToggle('AutoTp5x', {
     Text = 'Auto TP to 5x Zone', Default = false, 
     Callback = function(val) autoTp5x = val; startAutoPotionLoopIfNeeded() end 
 })
+autoPotionGroup:AddToggle('AutoTp10x', { 
+    Text = 'Auto TP to 10x Zone', Default = false, 
+    Callback = function(val) autoTp10x = val; startAutoPotionLoopIfNeeded() end 
+})
 autoPotionGroup:AddToggle('UsePotion2x', { 
     Text = 'Allow Use Potions in 2x', Default = false, 
     Callback = function(val) autoPotion2x = val; startAutoPotionLoopIfNeeded() end 
@@ -954,6 +1022,10 @@ autoPotionGroup:AddToggle('UsePotion2x', {
 autoPotionGroup:AddToggle('UsePotion5x', { 
     Text = 'Allow Use Potions in 5x', Default = false, 
     Callback = function(val) autoPotion5x = val; startAutoPotionLoopIfNeeded() end 
+})
+autoPotionGroup:AddToggle('UsePotion10x', { 
+    Text = 'Allow Use Potions in 10x', Default = false, 
+    Callback = function(val) autoPotion10x = val; startAutoPotionLoopIfNeeded() end 
 })
 
 autoPotionGroup:AddLabel('Select Potions to Use:', true)
@@ -1004,8 +1076,9 @@ local function resetSettings()
     clickTpEnabled = false; fullbrightEnabled = false; fpsBoostEnabled = false
     playerEspEnabled = false; zoomEnabled = false; autoBuyPotionEnabled = false
     autoUpgradeEnabled = false; isClicking = false
-    autoPotion2x = false; autoPotion5x = false; autoTp2x = false; autoTp5x = false
-    hideRollEnabled = false
+    autoPotion2x = false; autoPotion5x = false; autoPotion10x = false
+    autoTp2x = false; autoTp5x = false; autoTp10x = false
+    hideRollEnabled = false; hideEggEnabled = false; autoEggEnabled = false
 
     teardownFly(); disableNoclip(); removeFullbright(); disableEsp(); disableZoom()
 
